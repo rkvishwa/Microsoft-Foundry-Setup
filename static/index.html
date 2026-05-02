@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Foundry Chat</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --panel: #1a2332;
+      --text: #e7ecf3;
+      --muted: #8b98a8;
+      --accent: #3b82f6;
+      --user: #253341;
+      --assistant: #1e293b;
+      --border: #2d3b4f;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, Segoe UI, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid var(--border);
+      background: var(--panel);
+    }
+    header h1 {
+      margin: 0;
+      font-size: 1.1rem;
+      font-weight: 600;
+    }
+    header p {
+      margin: 0.35rem 0 0;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-top: 0.75rem;
+      flex-wrap: wrap;
+    }
+    .toolbar label {
+      font-size: 0.8rem;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    select {
+      padding: 0.35rem 0.5rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      font-size: 0.85rem;
+    }
+    #log {
+      flex: 1;
+      overflow-y: auto;
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      max-width: 720px;
+      width: 100%;
+      margin: 0 auto;
+    }
+    .bubble {
+      max-width: 100%;
+      padding: 0.75rem 1rem;
+      border-radius: 12px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      word-break: break-word;
+      border: 1px solid var(--border);
+    }
+    .bubble.user {
+      align-self: flex-end;
+      background: var(--user);
+    }
+    .bubble.assistant {
+      align-self: flex-start;
+      background: var(--assistant);
+    }
+    .bubble.error {
+      border-color: #b45309;
+      background: #422006;
+    }
+    .meta {
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      margin-bottom: 0.35rem;
+    }
+    form {
+      display: flex;
+      gap: 0.5rem;
+      padding: 1rem;
+      border-top: 1px solid var(--border);
+      background: var(--panel);
+      max-width: 720px;
+      width: 100%;
+      margin: 0 auto;
+    }
+    input[type="text"] {
+      flex: 1;
+      padding: 0.65rem 0.85rem;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      font-size: 1rem;
+    }
+    input[type="text"]:focus {
+      outline: 2px solid var(--accent);
+      outline-offset: 0;
+    }
+    button {
+      padding: 0.65rem 1.1rem;
+      border: none;
+      border-radius: 10px;
+      background: var(--accent);
+      color: #fff;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Microsoft Foundry Chat</h1>
+    <p>OpenAI-compatible endpoint · Conversation kept in this session until you refresh</p>
+    <div class="toolbar">
+      <label for="api-mode">API</label>
+      <select id="api-mode" aria-label="API mode">
+        <option value="completion">Chat completion</option>
+        <option value="response">Responses</option>
+      </select>
+    </div>
+  </header>
+  <main id="log" aria-live="polite"></main>
+  <form id="chat-form" autocomplete="off">
+    <input type="text" id="message" placeholder="Message…" maxlength="16000" required />
+    <button type="submit" id="send">Send</button>
+  </form>
+  <script>
+    const log = document.getElementById("log");
+    const form = document.getElementById("chat-form");
+    const input = document.getElementById("message");
+    const sendBtn = document.getElementById("send");
+    const apiMode = document.getElementById("api-mode");
+
+    /** @type {{ role: string, content: string }[]} */
+    let messages = [];
+    /** @type {string | null} last Responses API response id */
+    let lastResponseId = null;
+
+    apiMode.addEventListener("change", () => {
+      log.innerHTML = "";
+      messages = [];
+      lastResponseId = null;
+    });
+
+    function bubble(role, text, extraClass) {
+      const wrap = document.createElement("div");
+      wrap.className = "bubble " + role + (extraClass ? " " + extraClass : "");
+      const meta = document.createElement("div");
+      meta.className = "meta";
+      meta.textContent = role;
+      const body = document.createElement("div");
+      body.textContent = text;
+      wrap.appendChild(meta);
+      wrap.appendChild(body);
+      log.appendChild(wrap);
+      log.scrollTop = log.scrollHeight;
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const text = input.value.trim();
+      if (!text) return;
+
+      input.value = "";
+      bubble("user", text);
+
+      sendBtn.disabled = true;
+
+      const mode = apiMode.value;
+      /** @type {Record<string, unknown>} */
+      let payload;
+      if (mode === "completion") {
+        messages.push({ role: "user", content: text });
+        payload = { mode: "completion", messages };
+      } else {
+        payload = {
+          mode: "response",
+          input: text,
+          previous_response_id: lastResponseId,
+        };
+      }
+
+      try {
+        const res = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          let err = res.statusText;
+          if (typeof data.detail === "string") err = data.detail;
+          else if (Array.isArray(data.detail))
+            err = data.detail.map((d) => d.msg || JSON.stringify(d)).join("; ");
+          bubble("assistant", err || "Request failed.", "error");
+          if (mode === "completion") messages.pop();
+          sendBtn.disabled = false;
+          return;
+        }
+        const reply = data.content ?? "";
+        bubble("assistant", reply);
+        if (mode === "completion") {
+          messages.push({ role: "assistant", content: reply });
+        } else {
+          lastResponseId = data.response_id || null;
+        }
+      } catch (err) {
+        bubble("assistant", String(err.message || err), "error");
+        if (mode === "completion") messages.pop();
+      }
+
+      sendBtn.disabled = false;
+      input.focus();
+    });
+
+    input.focus();
+  </script>
+</body>
+</html>
