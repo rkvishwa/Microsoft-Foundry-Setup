@@ -13,8 +13,6 @@ from pydantic import BaseModel, model_validator
 load_dotenv()
 
 # Microsoft Foundry OpenAI-compatible API: SDK calls /chat/completions etc. under this base.
-DEFAULT_ENDPOINT = "https://knurdzorg-test-resource.services.ai.azure.com/openai/v1"
-DEFAULT_DEPLOYMENT = "Kimi-K2.6"
 
 _static_dir = Path(__file__).resolve().parent / "static"
 
@@ -35,10 +33,19 @@ def _normalize_openai_base_url(url: str) -> str:
 
 
 def _get_settings() -> tuple[str, str, str]:
-    endpoint = _normalize_openai_base_url(
-        os.environ.get("AZURE_AI_ENDPOINT", DEFAULT_ENDPOINT).rstrip("/")
-    )
-    deployment = os.environ.get("AZURE_AI_DEPLOYMENT", DEFAULT_DEPLOYMENT)
+    endpoint_str = os.environ.get("AZURE_AI_ENDPOINT")
+    if not endpoint_str:
+        raise HTTPException(
+            status_code=500,
+            detail="Set AZURE_AI_ENDPOINT in your environment or .env file.",
+        )
+    endpoint = _normalize_openai_base_url(endpoint_str.rstrip("/"))
+    deployment = os.environ.get("AZURE_AI_DEPLOYMENT")
+    if not deployment:
+        raise HTTPException(
+            status_code=500,
+            detail="Set AZURE_AI_DEPLOYMENT in your environment or .env file.",
+        )
     api_key = os.environ.get("AZURE_AI_API_KEY") or os.environ.get("OPENAI_API_KEY")
     if not api_key:
         raise HTTPException(
